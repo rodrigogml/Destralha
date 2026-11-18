@@ -4,7 +4,6 @@ import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 import os
-import msvcrt
 from pathlib import Path
 import re
 import stat
@@ -190,33 +189,5 @@ def delete_download(row: Download):
     reason = blocked_reason(row.root, path, protected, process_snapshot())
     if reason:
         raise Refused(reason)
-    # DELETE + leitura de atributos, share=0: nenhuma gravação/uso concorrente.
-    create = ctypes.windll.kernel32.CreateFileW
-    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-    create.restype = wintypes.HANDLE
-    handle = create(str(path), 0x10000 | 0x80, 0, None, 3, 0x02000000, None)
-    if handle == ctypes.c_void_p(-1).value:
-        raise Refused('Arquivo em uso ou sem permissão; preservado.')
-    close = ctypes.windll.kernel32.CloseHandle
-    close.argtypes = [wintypes.HANDLE]
-    descriptor = None
-    try:
-        # Revalida identidade após adquirir o handle. DELETE fica vinculado ao
-        # objeto aberto, evitando excluir outro arquivo inserido no mesmo nome.
-        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY)
-        current = os.fstat(descriptor)
-        if (current.st_size, current.st_mtime_ns, current.st_ino) != (row.size, row.modified_ns, row.identity):
-            raise Refused('Arquivo mudou; preservado.')
-        disposition = ctypes.c_ubyte(1)
-        function = ctypes.windll.kernel32.SetFileInformationByHandle
-        function.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-        function.restype = wintypes.BOOL
-        if not function(handle, 4, ctypes.byref(disposition), 1):
-            raise Refused('Windows recusou excluir o arquivo; preservado.')
-    finally:
-        if descriptor is None:
-            close(handle)
-        else:
-            os.close(descriptor)
-    return row.size
+    from file_deletion import delete_snapshot
+    return delete_snapshot(path,row.size,row.modified_ns,row.identity)

@@ -21,8 +21,10 @@ nome de usuário fixo no código.
 
 ## Uso
 
-1. **Analisar diretórios** atualiza Caches, Downloads e Outros.
-2. Use busca e filtros com contagens combinadas e consulte **Detalhes**.
+1. **Analisar Computador** atualiza os arquivos e as instalações suportadas.
+2. A **Visão geral** resume os resultados e abre cada área pelo clique na tabela.
+   A barra lateral divide **Arquivos** e **Instalações**, sem outro menu interno.
+   Em Arquivos, use busca e filtros com contagens combinadas e consulte **Detalhes**.
 3. Marque os alvos desejados e use **Simular** ou **Revisar limpeza**.
 4. Revise caminhos, efeitos e itens fora dos filtros antes de confirmar.
 
@@ -36,14 +38,20 @@ ação que os grava. Preferências e atalhos locais não são versionados.
 
 ## Gerenciamento por instalação
 
-**Programas e sistema** detecta instâncias locais de MySQL e oferece diagnóstico
-do Windows. Mostra caminhos, totais, tipos de arquivo e sugestões, sem considerar
+Em **Instalações**, cada instância local de MySQL e o Windows possuem acesso
+direto. A tela mostra caminhos, totais, tipos de arquivo e sugestões, sem considerar
 todo espaço ocupado como lixo. Tabelas e arquivos internos são preservados.
 
 O MySQL pode ser consultado por conexão local, com senha somente em memória.
 O expurgo de binlogs é feito pelo próprio servidor, com verificação da instância,
 revisão de backups/replicação e confirmação final. No Windows, análise e limpeza
 de componentes usam DISM; não há `/ResetBase` ou exclusão manual de componentes.
+
+O ícone de visualização no início das linhas abre os arquivos em tabela.
+Exportações/backups externos ao datadir permitem marcar cópias e excluir após
+confirmação; scripts do servidor e SQLs de inicialização identificados são
+preservados. Um backup pode ser a única cópia de recuperação: sua necessidade
+deve ser revisada pelo usuário. Os diálogos abrem centralizados em sua janela pai.
 
 [Uso e contratos de segurança da área de gerenciamento](docs/maintenance.md).
 

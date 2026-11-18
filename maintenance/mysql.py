@@ -8,7 +8,7 @@ import subprocess
 import engine
 from .inventory import Installation, measure
 
-CONFIG_KEYS = {'basedir','datadir','port','log-bin','log_bin','log_error','general_log_file','slow_query_log_file'}
+CONFIG_KEYS = {'basedir','datadir','port','log-bin','log_bin','log_error','general_log_file','slow_query_log_file','init-file','init_file'}
 BINLOG = re.compile(r'.*\.(?:[0-9]{6,})$',re.I)
 
 
@@ -69,9 +69,11 @@ def installation_from_service(service):
     warnings = ['Localização inferida da configuração local; a conexão SQL confirma a instância e o datadir efetivos.']
     if not explicit:
         warnings.append('Serviço sem --defaults-file: outras opções do servidor podem alterar os caminhos.')
+    init=re.search(r'--init-file(?:=|\s+)(?:"([^"]+)"|(\S+))',command,re.I)
+    preserved=(Path(init.group(1) or init.group(2)),) if init else ()
     return Installation('mysql:'+service.get('Name',str(root)),'mysql','MySQL · '+service.get('Name',root.name),
                         root,data,service.get('Name',''),service.get('State','Desconhecido'),
-                        config if config.is_file() else None,port,tuple(warnings))
+                        config if config.is_file() else None,port,tuple(warnings),preserved)
 
 
 def discover(services=None, locations=None):

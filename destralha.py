@@ -14,7 +14,7 @@ import engine
 import downloads
 
 APP = Path(__file__).resolve().parent
-VERSION = '1.1'
+VERSION = '1.2'
 BG, PANEL, SOFT, LINE = '#10161e', '#18212c', '#202e3d', '#2b3949'
 INK, MUTED, ACCENT, ACCENT_BG, WARN = '#edf4fc', '#a6b6c7', '#78d4d6', '#203c40', '#f0c381'
 CATEGORIES = ('Caches', 'Downloads', 'Outros')
@@ -116,12 +116,15 @@ class DestralhaApp:
         self.category = 'Caches'
         self.mode = 'catalog'
         self.management = None
+        self.overview = None
+        self.installation_buttons = {}
         self.events = queue.Queue()
         self.cancel = threading.Event()
         self.working = False
         self.job = None
         self.report = None
         self.analyzed = False
+        self.analysis_canceled = False
         self.warnings = []
         self.images = {}
         self.preferences = self.read_preferences()
@@ -140,6 +143,7 @@ class DestralhaApp:
         self.root.configure(bg=BG)
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.build()
+        self.show_overview()
         self.render()
         self.timer = root.after(80, self.pump)
 
@@ -230,6 +234,9 @@ class DestralhaApp:
         style.configure('Destralha.Vertical.TScrollbar', background=SOFT, troughcolor=PANEL, borderwidth=0,
                         bordercolor=PANEL,lightcolor=PANEL,darkcolor=PANEL,arrowcolor=MUTED)
         style.map('Destralha.Vertical.TScrollbar',background=[('active',LINE),('!active',SOFT)])
+        style.configure('Destralha.Horizontal.TScrollbar',background=SOFT,troughcolor=PANEL,borderwidth=0,
+                        bordercolor=PANEL,lightcolor=PANEL,darkcolor=PANEL,arrowcolor=MUTED)
+        style.map('Destralha.Horizontal.TScrollbar',background=[('active',LINE),('!active',SOFT)])
         self.root.option_add('*TCombobox*Listbox.background',PANEL)
         self.root.option_add('*TCombobox*Listbox.foreground',INK)
         self.root.option_add('*TCombobox*Listbox.selectBackground',ACCENT_BG)
@@ -241,16 +248,26 @@ class DestralhaApp:
         logo.thumbnail((171,70), Image.Resampling.LANCZOS)
         self.images['logo'] = ImageTk.PhotoImage(logo, master=self.root)
         tk.Label(sidebar,image=self.images['logo'],bg=PANEL).pack(anchor='w',pady=(0,9))
-        self.label(sidebar,'Espaço sob controle.',size=9,color=MUTED).pack(anchor='w',pady=(0,30))
+        self.label(sidebar,'Espaço sob controle.',size=9,color=MUTED).pack(anchor='w',pady=(0,16))
+        self.overview_button=self.button(sidebar,'Visão geral',self.show_overview,'disk',quiet=True)
+        self.overview_button.configure(anchor='w',padx=13)
+        self.overview_button.pack(fill='x',pady=(0,14))
+        self.label(sidebar,'ARQUIVOS',size=9,color=MUTED).pack(anchor='w',padx=12,pady=(0,5))
         self.nav = {}
         for category, icon in zip(CATEGORIES,('brush','download','folder')):
             button = self.button(sidebar,category,lambda value=category:self.change_category(value),icon,quiet=True)
-            button.configure(anchor='w',padx=13,pady=13)
+            button.configure(anchor='w',padx=13,pady=10)
             button.pack(fill='x',pady=4)
             self.nav[category] = button
-        self.management_button = self.button(sidebar,'Programas e sistema',self.open_management,'gear',quiet=True)
-        self.management_button.configure(anchor='w',padx=13,pady=13)
-        self.management_button.pack(fill='x',pady=(18,4))
+        self.label(sidebar,'INSTALAÇÕES',size=9,color=MUTED).pack(anchor='w',padx=12,pady=(18,5))
+        self.installation_menu=tk.Frame(sidebar,bg=PANEL)
+        self.installation_menu.pack(fill='x')
+        self.management_button=self.button(self.installation_menu,'Windows',lambda:self.open_management('windows'),'gear',quiet=True)
+        self.management_button.configure(anchor='w',padx=13,pady=10)
+        self.management_button.pack(fill='x',pady=3)
+        self.installation_buttons['windows']=self.management_button
+        self.installation_hint=self.label(self.installation_menu,'MySQL: detectar na análise',size=8,color=MUTED)
+        self.installation_hint.pack(anchor='w',padx=12,pady=5)
         self.button(sidebar,'Opções',self.settings,'gear',quiet=True).pack(side='bottom',fill='x',pady=(20,0))
         disk = tk.Frame(sidebar,bg=PANEL)
         disk.pack(side='bottom',fill='x',pady=(25,0))
@@ -264,7 +281,7 @@ class DestralhaApp:
         self.main_area = main
         header = tk.Frame(main,bg=PANEL,padx=24,pady=17); header.pack(fill='x')
         self.label(header,'PERFIL ATUAL  ·  ANÁLISE LOCAL',size=9,color=MUTED).pack(side='left')
-        self.analyze_button = self.button(header,'Analisar diretórios',self.analyze,'search',primary=True)
+        self.analyze_button = self.button(header,'Analisar Computador',self.analyze,'search',primary=True)
         self.analyze_button.pack(side='right')
         self.report_button = self.button(header,'Relatório',self.show_report,'report',quiet=True)
         self.report_button.pack(side='right',padx=12)
@@ -329,7 +346,7 @@ class DestralhaApp:
             combo = ttk.Combobox(box,textvariable=variable,state='readonly',style='Destralha.TCombobox',width=20,font=('Segoe UI',9))
             combo.pack(fill='x'); combo.bind('<<ComboboxSelected>>',lambda event,key=name:self.on_filter(key))
             self.filters[name] = variable,combo
-        self.visible_label = self.label(content,'Clique em Analisar diretórios para começar.',size=9,color=MUTED)
+        self.visible_label = self.label(content,'Clique em Analisar Computador para começar.',size=9,color=MUTED)
         self.visible_label.pack(side='bottom',anchor='w',pady=(10,0))
         table = tk.Frame(content,bg=PANEL,highlightbackground=LINE,highlightthickness=1)
         table.pack(fill='both',expand=True)
@@ -358,12 +375,19 @@ class DestralhaApp:
         return filter_rows(self.rows[self.category], self.states[self.category]['query'], **self.current_filters())
 
     def render(self):
+        self.overview_button.configure(bg=ACCENT_BG if self.mode=='overview' else PANEL,fg=ACCENT if self.mode=='overview' else MUTED)
+        for key,button in self.installation_buttons.items():
+            active=self.mode=='management' and self.management is not None and self.management.current and self.management.current.key==key
+            button.configure(bg=ACCENT_BG if active else PANEL,fg=ACCENT if active else MUTED)
+        for category,button in self.nav.items():
+            active=self.mode=='catalog' and category==self.category
+            button.configure(bg=ACCENT_BG if active else PANEL,fg=ACCENT if active else MUTED,text=f'{category}   {len(self.rows[category])}')
+        if self.mode == 'overview':
+            self.overview.render()
+            return
         if self.mode == 'management':
-            for button in self.nav.values():button.configure(bg=PANEL,fg=MUTED)
-            self.management_button.configure(bg=ACCENT_BG,fg=ACCENT)
             if self.management is not None:self.management.refresh_controls()
             return
-        self.management_button.configure(bg=PANEL,fg=MUTED)
         self.updating = True
         try:
             state = self.states[self.category]
@@ -406,7 +430,7 @@ class DestralhaApp:
                     for child,row in enumerate(sorted(group,key=lambda value:value.size,reverse=True)):
                         self.insert_row(parent,f'{parent}:{child}',[row],str(row.path.relative_to(row.root)),child=True)
             self.visible_label.configure(text=f'{len(visible)} de {len(rows)} alvos · {engine.human_size(sum(row.size for row in visible))} · '
-                                         + ('Clique em Analisar diretórios para começar.' if not rows and not self.analyzed else
+                                         + ('Clique em Analisar Computador para começar.' if not rows and not self.analyzed else
                                             'Nenhum alvo encontrado nesta categoria.' if not rows else
                                             'Condições da última análise; revalidadas antes de excluir.'))
             selected = [row for row in rows if row.selected]
@@ -447,22 +471,49 @@ class DestralhaApp:
 
     def change_category(self,category):
         if category in CATEGORIES:
-            if self.mode == 'management':
-                self.management.frame.pack_forget()
-                self.catalog_footer.pack(side='bottom',fill='x')
-                self.catalog_page.pack(fill='both',expand=True)
+            self.hide_pages()
+            self.catalog_footer.pack(side='bottom',fill='x')
+            self.catalog_page.pack(fill='both',expand=True)
             self.mode = 'catalog'
             self.category = category
             self.render()
 
-    def open_management(self):
+    def hide_pages(self):
+        self.catalog_page.pack_forget();self.catalog_footer.pack_forget()
+        if self.management is not None:self.management.frame.pack_forget()
+        if self.overview is not None:self.overview.frame.pack_forget()
+
+    def ensure_management(self):
         if self.management is None:
             from maintenance.view import MaintenanceView
             self.management = MaintenanceView(self,self.main_area)
+        return self.management
+
+    def show_overview(self):
+        if self.overview is None:
+            from overview import Overview
+            self.overview=Overview(self,self.main_area)
+        self.hide_pages();self.mode='overview'
+        self.overview.frame.pack(fill='both',expand=True)
+        self.render()
+
+    def refresh_installations(self):
+        if self.management is None:return
+        for button in self.installation_buttons.values():button.destroy()
+        self.installation_buttons.clear();self.installation_hint.pack_forget()
+        for item in self.management.installations:
+            button=self.button(self.installation_menu,item.name,lambda key=item.key:self.open_management(key),'gear',quiet=True)
+            button.configure(anchor='w',padx=13,pady=10)
+            button.pack(fill='x',pady=3)
+            self.installation_buttons[item.key]=button
+        self.render()
+
+    def open_management(self,key=None):
+        self.ensure_management()
+        if self.working and key is not None and (self.management.current is None or self.management.current.key!=key):return
+        self.hide_pages()
         self.mode = 'management'
-        self.catalog_page.pack_forget()
-        self.catalog_footer.pack_forget()
-        self.management.activate()
+        self.management.activate(key)
         self.render()
 
     def remember_open(self,opened):
@@ -515,18 +566,40 @@ class DestralhaApp:
         if key in self.items:
             self.show_details(self.items[key])
 
-    def dialog(self,title,size='720x520'):
-        window = tk.Toplevel(self.root,bg=PANEL)
+    def dialog(self,title,size='720x520',parent=None):
+        if parent is None:
+            focused=self.root.focus_get()
+            parent=focused.winfo_toplevel() if focused is not None else self.root
+        window = tk.Toplevel(parent,bg=PANEL)
         icon = APP/'assets/brand/destralha.ico'
         if icon.exists():
             window.iconbitmap(str(icon))
         window.title('Destralha · '+title)
         window.geometry(size)
         window.minsize(580,380)
-        window.transient(self.root)
+        window.transient(parent)
+        window.after_idle(lambda:self.center_dialog(window,parent))
         frame = tk.Frame(window,bg=PANEL,padx=26,pady=22); frame.pack(fill='both',expand=True)
         self.label(frame,title,size=20,bold=True).pack(anchor='w',pady=(0,10))
         return window,frame
+
+    def center_dialog(self,window,parent):
+        if not window.winfo_exists() or not parent.winfo_exists():return
+        parent.update_idletasks();window.update_idletasks()
+        width,height=window.winfo_width(),window.winfo_height()
+        x=parent.winfo_rootx()+(parent.winfo_width()-width)//2-(window.winfo_rootx()-window.winfo_x())
+        y=parent.winfo_rooty()+(parent.winfo_height()-height)//2-(window.winfo_rooty()-window.winfo_y())
+        # Coordenadas negativas são posições absolutas em outro monitor, não
+        # distâncias da borda direita/baixo como na geometria textual do Tk.
+        if x<0 or y<0:
+            import ctypes
+            from ctypes import wintypes
+            user32=ctypes.windll.user32
+            user32.GetAncestor.argtypes=[wintypes.HWND,wintypes.UINT]
+            user32.GetAncestor.restype=wintypes.HWND
+            user32.SetWindowPos.argtypes=[wintypes.HWND,wintypes.HWND,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,wintypes.UINT]
+            user32.SetWindowPos(user32.GetAncestor(window.winfo_id(),2),None,x,y,0,0,0x15)
+        else:window.geometry(f'{width}x{height}+{x}+{y}')
 
     def text_view(self,parent,text):
         frame = tk.Frame(parent,bg=BG); frame.pack(fill='both',expand=True,pady=12)
@@ -598,7 +671,7 @@ class DestralhaApp:
         self.days_input.configure(state='disabled' if value else 'normal')
         if value:
             if not self.live.winfo_manager():
-                page = self.management.frame if self.mode=='management' else self.catalog_page
+                page = self.management.frame if self.mode=='management' else self.overview.frame if self.mode=='overview' else self.catalog_page
                 self.live.pack(fill='x',before=page)
         else:
             self.live.pack_forget()
@@ -615,7 +688,7 @@ class DestralhaApp:
         if not self.working:
             return
         if self.progress_window is not None and self.progress_window.winfo_exists():
-            self.progress_window.deiconify(); self.progress_window.lift(); return
+            self.progress_window.deiconify(); self.center_dialog(self.progress_window,self.root);self.progress_window.lift(); return
         window,frame = self.dialog(self.progress_state['title'],'690x420')
         self.progress_window = window
         window.protocol('WM_DELETE_WINDOW',window.withdraw)
@@ -665,9 +738,6 @@ class DestralhaApp:
     def analyze(self):
         if self.working:
             return
-        if self.mode == 'management':
-            self.management.analyze()
-            return
         try:
             days = int(self.days.get()); downloads.validate_days(days)
         except ValueError:
@@ -675,12 +745,17 @@ class DestralhaApp:
             messagebox.showerror('Prazo de Downloads','Informe um prazo entre 1 e 36500 dias.',parent=self.root)
             return
         rules = [rule for rule in self.rules if self.preferences['protected'] or not rule.get('protected')]
+        self.ensure_management()
+        self.show_overview()
         self.begin('analysis','Analisando seu espaço')
         def worker():
             try:
-                rows = engine.scan(rules,self.roots,
-                    lambda i,n,name:self.events.put(('progress',dict(phase='1 / 2 · Diretórios conhecidos',index=i,total=n,current=name))),self.cancel)
-                self.events.put(('progress',dict(phase='2 / 2 · Downloads',index=0,total=0,current='Identificando arquivos por idade e tamanho…')))
+                try:
+                    rows = engine.scan(rules,self.roots,
+                        lambda i,n,name:self.events.put(('progress',dict(phase='1 / 3 · Diretórios conhecidos',index=i,total=n,current=name))),self.cancel)
+                    scan_warnings=[]
+                except Exception as exc:rows=[];scan_warnings=[f'Diretórios conhecidos: {exc}']
+                self.events.put(('progress',dict(phase='2 / 3 · Downloads',index=0,total=0,current='Identificando arquivos por idade e tamanho…')))
                 if self.cancel.is_set():
                     download_rows,warnings = [],['Análise cancelada; resultados incompletos.']
                 else:
@@ -688,6 +763,23 @@ class DestralhaApp:
                         download_rows,warnings = downloads.scan_downloads(self.downloads_root,days,self.cancel)
                     except Exception as exc:
                         download_rows,warnings = [],[f'Downloads não pôde ser analisado: {exc}']
+                from maintenance import mysql,windows
+                warnings.extend(scan_warnings)
+                inventories={};installations=[windows.installation()]
+                if not self.cancel.is_set():
+                    self.events.put(('progress',dict(phase='3 / 3 · Instalações',index=0,total=0,current='Detectando MySQL e Windows…')))
+                    try:
+                        items,issues=mysql.discover();installations.extend(items);warnings.extend(issues)
+                    except Exception as exc:warnings.append(f'Detecção de instalações: {exc}')
+                    for item in installations:
+                        if self.cancel.is_set():break
+                        self.events.put(('progress',dict(phase='3 / 3 · '+item.name,index=0,total=0,current=str(item.root))))
+                        try:
+                            inventories[item.key]=(mysql.inventory if item.kind=='mysql' else windows.inventory)(item,self.cancel,self.management.progress)
+                            if inventories[item.key].warnings:warnings.append(f'{item.name}: inventário com avisos; consulte os detalhes da instalação.')
+                        except Exception as exc:warnings.append(f'{item.name}: {exc}')
+                if self.cancel.is_set():warnings.append('Análise cancelada; resultados incompletos.')
+                self.events.put(('inventory_batch',(installations,inventories)))
                 self.events.put(('analysis',(rows,download_rows,warnings)))
             except Exception as exc:
                 self.events.put(('error',str(exc)))
@@ -783,9 +875,15 @@ class DestralhaApp:
                     self.management.on_event(kind,payload)
                 elif kind=='progress':
                     self.progress_state.update(payload); self.update_progress()
+                elif kind=='inventory_batch':
+                    self.management.installations,self.management.inventories=payload
+                    self.management.disconnect()
+                    self.management.current=next(iter(self.management.installations),None)
+                    self.refresh_installations()
                 elif kind=='analysis':
                     catalog,download_rows,self.warnings = payload
                     self.analyzed = True
+                    self.analysis_canceled = self.cancel.is_set()
                     self.rows = {category:[] for category in CATEGORIES}
                     for row in catalog:
                         category = category_of(row.rule)
@@ -799,6 +897,10 @@ class DestralhaApp:
                     self.visible_label.configure(text=note)
                     self.report = dict(category='Todas',analysis=True,canceled=self.cancel.is_set(),
                                        counts={key:len(value) for key,value in self.rows.items()},warnings=self.warnings,results=[])
+                    self.report['installations']=[dict(name=item.name,path=str(item.root),
+                        bytes=self.management.inventories[item.key].total if item.key in self.management.inventories else None,
+                        warnings=self.management.inventories[item.key].warnings if item.key in self.management.inventories else ['Não medido']) for item in self.management.installations]
+                    self.show_overview()
                 elif kind=='cleaned':
                     self.report,removed = payload
                     removed_keys = {row_key(row) for row in removed}
@@ -828,6 +930,8 @@ class DestralhaApp:
                      ' · '.join(f'{key}: {value} alvos' for key,value in data['counts'].items()),
                      'Nenhum arquivo excluído.']
             lines += data.get('warnings',[])
+            for item in data.get('installations',[]):
+                lines += [f"{item['name']} · {item['path']} · "+(engine.human_size(item['bytes']) if item['bytes'] is not None else 'Não medido'),*item['warnings']]
         else:
             lines = ['SIMULAÇÃO' if data['simulation'] else 'LIMPEZA',f"Categoria: {data['category']}",
                      f"{data['selected']} alvos selecionados · {data['unprocessed']} não processados",

@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+from tkinter import ttk
 import unittest
 from unittest.mock import patch,Mock
 
@@ -264,7 +265,7 @@ class MaintenanceInterfaceTests(unittest.TestCase):
         result=Inventory(self.item,files=[FileRecord(self.base/'data/binlog.000001',100,time.time(),'Logs binários')])
         with patch.object(mysql,'inventory',return_value=result), \
              patch.object(Path,'write_text',side_effect=AssertionError('No automatic report')):
-            self.app.analyze();self.wait()
+            view.analyze();self.wait()
         self.assertEqual(view.inventories[self.item.key].total,100)
         self.assertIn('100.00 B',self.app.report_text())
         self.assertFalse(self.app.rows['Caches'])
@@ -299,3 +300,64 @@ class MaintenanceInterfaceTests(unittest.TestCase):
             self.assertTrue(all(not bool(self.root.getvar(widget.cget('variable'))) for widget in checks))
             self.assertNotIn('secret',self.app.report_text())
             dialogs[0].destroy()
+
+    def test_export_table_selects_and_removes_only_confirmed_copies(self):
+        view=self.open()
+        (self.base/'bin').mkdir();(self.base/'data').mkdir()
+        first=self.base/'bin/backup.sql';first.write_bytes(b'dump')
+        second=self.base/'bin/other.sql';second.write_bytes(b'dump2')
+        protected=self.base/'data/server.sql';protected.write_bytes(b'valid data')
+        view.inventories[self.item.key]=mysql.inventory(self.item);view.render()
+        key=next(key for key,name in view.group_names.items() if name=='Exportações / backups a revisar')
+        self.assertTrue(view.groups.item(key,'image'))
+        view.groups.selection_set(key);view.details()
+        window=next(widget for widget in self.root.winfo_children() if isinstance(widget,tk.Toplevel) and 'backups' in widget.title())
+        def widgets(parent):
+            for child in parent.winfo_children():
+                yield child;yield from widgets(child)
+        children=list(widgets(window))
+        table=next(widget for widget in children if isinstance(widget,ttk.Treeview))
+        buttons={widget.cget('text'):widget for widget in children if isinstance(widget,tk.Button)}
+        self.assertEqual(len(table.get_children()),3)
+        buttons['Marcar Tudo'].invoke()
+        self.assertEqual(sum(table.item(key,'text')=='☑' for key in table.get_children()),2)
+        with patch('maintenance.view.messagebox.askyesno',return_value=False):buttons['Excluir marcados'].invoke()
+        self.assertTrue(first.exists() and second.exists())
+        with patch('maintenance.view.messagebox.askyesno',return_value=True),patch.object(self.app,'show_report'), \
+             patch.object(Path,'write_text',side_effect=AssertionError('No automatic report')):
+            buttons['Excluir marcados'].invoke();self.wait()
+        self.assertFalse(first.exists() or second.exists())
+        self.assertTrue(protected.exists())
+        self.assertEqual(len(self.app.report['results']),2)
+
+    def test_detail_icon_opens_details_with_single_click(self):
+        from types import SimpleNamespace
+        view=self.open()
+        result=Inventory(self.item,files=[FileRecord(self.base/'table.ibd',10,time.time(),'Tabelas e índices')])
+        view.inventories[self.item.key]=result;view.render()
+        with patch.object(view.groups,'identify_row',return_value='0'),patch.object(view.groups,'identify_column',return_value='#0'), \
+             patch.object(view,'details') as details:
+            view.details_click(SimpleNamespace(x=5,y=8))
+        details.assert_called_once()
+
+    def test_file_table_pages_keep_group_selection(self):
+        view=self.open()
+        records=[FileRecord(self.base/f'backup-{index}.sql',1,time.time(),'Exportações / backups a revisar') for index in range(205)]
+        view.inventories[self.item.key]=Inventory(self.item,files=records);view.render()
+        view.groups.selection_set('0')
+        with patch('maintenance.view.exports.reason',return_value=''):view.details()
+        window=next(widget for widget in self.root.winfo_children() if isinstance(widget,tk.Toplevel) and 'backups' in widget.title())
+        def widgets(parent):
+            for child in parent.winfo_children():
+                yield child;yield from widgets(child)
+        children=list(widgets(window))
+        table=next(widget for widget in children if isinstance(widget,ttk.Treeview))
+        buttons={widget.cget('text'):widget for widget in children if isinstance(widget,tk.Button)}
+        self.assertEqual(len(table.get_children()),200)
+        buttons['Marcar Tudo'].invoke();buttons['Próxima página'].invoke()
+        self.assertEqual(len(table.get_children()),5)
+        self.assertTrue(all(table.item(key,'text')=='☑' for key in table.get_children()))
+        self.assertTrue(any('205 marcados no grupo' in widget.cget('text') for widget in children if isinstance(widget,tk.Label)))
+        buttons['Desmarcar Tudo'].invoke();buttons['Página anterior'].invoke()
+        self.assertTrue(all(table.item(key,'text')=='☐' for key in table.get_children()))
+        window.destroy()

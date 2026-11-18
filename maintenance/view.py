@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk,messagebox
 
 import engine
-from . import mysql,windows
+from . import mysql,windows,exports
 
 
 class MaintenanceView:
@@ -31,12 +31,6 @@ class MaintenanceView:
         self.analyze_button=app.button(toolbar,'Analisar instalação',self.analyze,'disk')
         self.analyze_button.pack(side='left',padx=9)
         body=tk.Frame(self.frame,bg=BG);body.pack(fill='both',expand=True)
-        left=tk.Frame(body,bg=PANEL,width=235);left.pack(side='left',fill='y',padx=(0,18));left.pack_propagate(False)
-        app.label(left,'INSTALAÇÕES ENCONTRADAS',size=9,color=MUTED).pack(anchor='w',padx=12,pady=12)
-        self.list=ttk.Treeview(left,show='tree',style='Destralha.Treeview',selectmode='browse')
-        self.list.column('#0',width=220,minwidth=100)
-        self.list.pack(fill='both',expand=True)
-        self.list.bind('<<TreeviewSelect>>',self.on_select)
         right=tk.Frame(body,bg=BG);right.pack(side='left',fill='both',expand=True)
         self.name=app.label(right,'Selecione uma instalação',size=17,bold=True)
         self.name.pack(anchor='w')
@@ -58,21 +52,27 @@ class MaintenanceView:
         suggestions_label.pack(side='bottom',anchor='w',pady=(10,4))
         table=tk.Frame(right,bg=PANEL);table.pack(fill='both',expand=True)
         ttk.Style().configure('Management.Destralha.Treeview',rowheight=32)
-        self.groups=ttk.Treeview(table,columns=('size','files'),style='Management.Destralha.Treeview',height=6,selectmode='browse')
-        self.groups.heading('#0',text='Tipo de conteúdo')
+        self.groups=ttk.Treeview(table,columns=('name','size','files'),style='Management.Destralha.Treeview',height=6,selectmode='browse')
+        self.groups.heading('#0',text='Detalhes')
+        self.groups.column('#0',width=70,minwidth=70,stretch=False,anchor='center')
+        self.groups.heading('name',text='Tipo de conteúdo')
         self.groups.heading('size',text='Espaço lógico')
         self.groups.heading('files',text='Arquivos')
-        self.groups.column('#0',width=300,minwidth=170)
+        self.groups.column('name',width=450,minwidth=170)
         self.groups.column('size',width=115,stretch=False,anchor='e')
         self.groups.column('files',width=85,stretch=False,anchor='e')
         scroll=ttk.Scrollbar(table,orient='vertical',command=self.groups.yview,style='Destralha.Vertical.TScrollbar')
         scroll.pack(side='right',fill='y');self.groups.configure(yscrollcommand=scroll.set)
         self.groups.pack(fill='both',expand=True)
-        self.groups.bind('<Double-1>',lambda event:self.details())
+        self.groups.bind('<Double-1>',lambda event:self.details() if self.groups.identify_column(event.x)!='#0' else 'break')
+        self.groups.bind('<ButtonRelease-1>',self.details_click)
         self.groups.bind('<Return>',lambda event:self.details())
         self.group_names={}
 
-    def activate(self):
+    def activate(self,key=None):
+        if key is not None:
+            self.requested_key=key
+            self.select_installation(key)
         self.frame.pack(fill='both',expand=True)
         self.refresh_controls()
         if not self.installations and not self.app.working:self.discover()
@@ -109,13 +109,9 @@ class MaintenanceView:
             self.app.events.put(('managed_discovery',([windows.installation(),*items],warnings)))
         self.task('Detectando instalações',worker)
 
-    def on_select(self,_=None):
-        selected=self.list.selection()
-        if not selected:return
-        if self.app.working:
-            if self.current and selected!=(self.current.key,):self.list.selection_set(self.current.key)
-            return
-        item=next((item for item in self.installations if item.key==selected[0]),None)
+    def select_installation(self,key):
+        if self.app.working:return
+        item=next((item for item in self.installations if item.key==key),None)
         if item:
             if self.current is None or self.current.key!=item.key:
                 self.disconnect()
@@ -135,10 +131,10 @@ class MaintenanceView:
             self.total.configure(text=engine.human_size(inventory.total)+' inventariados')
             self.status.configure(text=f'{len(inventory.files):,} arquivos únicos · '+
                                   ('Medição cancelada / parcial' if inventory.canceled else 'Medição com avisos' if inventory.warnings else 'Medição concluída')+
-                                  ' · Duplo clique em um tipo para inspecionar os maiores arquivos.')
+                                  ' · Clique no ícone de detalhes para consultar arquivos e ações.')
             for index,(name,values) in enumerate(inventory.groups().items()):
                 key=str(index);self.group_names[key]=name
-                self.groups.insert('','end',iid=key,text=name,values=(engine.human_size(values['bytes']),f"{values['files']:,}"))
+                self.groups.insert('','end',iid=key,image=self.app.icon('eye'),values=(name,engine.human_size(values['bytes']),f"{values['files']:,}"))
         else:
             self.total.configure(text='Ainda não medido')
             self.status.configure(text='Clique em Analisar instalação para medir este escopo.')
@@ -209,6 +205,12 @@ class MaintenanceView:
             self.app.events.put(('managed_inventory',inventory))
         self.task('Analisando '+item.name,worker)
 
+    def details_click(self,event):
+        key=self.groups.identify_row(event.y)
+        if key and self.groups.identify_column(event.x)=='#0':
+            self.groups.selection_set(key);self.details()
+            return 'break'
+
     def details(self):
         if not self.current:return
         inventory=self.inventories.get(self.current.key)
@@ -216,11 +218,85 @@ class MaintenanceView:
         if not inventory or not selection:return
         category=self.group_names[selection[0]]
         files=sorted((item for item in inventory.files if item.category==category),key=lambda item:item.size,reverse=True)
-        window,frame=self.app.dialog(category,'820x600')
-        self.app.label(frame,'Maiores arquivos do grupo. Esta tela não oferece exclusão direta.',wraplength=740).pack(anchor='w')
+        window,frame=self.app.dialog(category,'1040x650')
+        item=self.current
+        removable=item.kind=='mysql' and category==exports.CATEGORY
+        reasons={str(index):exports.reason(item,record) if removable else 'Preservado: use a manutenção específica desta instalação.' for index,record in enumerate(files)}
+        selected=set()
+        page=[0];page_size=200
+        self.app.label(frame,('Revise as cópias que não precisa guardar. A exclusão é permanente; pode remover sua única cópia de recuperação.' if removable else
+                       'Arquivos preservados. Binlogs exigem expurgo pelo MySQL; componentes do Windows usam manutenção nativa.'),wraplength=960,justify='left',color=self.palette[4]).pack(anchor='w')
         footer=tk.Frame(frame,bg=self.palette[1]);footer.pack(side='bottom',fill='x')
         self.app.button(footer,'Fechar',window.destroy).pack(side='right')
-        self.app.text_view(frame,'\n\n'.join(f'{engine.human_size(item.size)} · {time.strftime("%d/%m/%Y",time.localtime(item.modified))}\n{item.path}' for item in files[:100]))
+        status=self.app.label(frame,'',size=10);status.pack(anchor='w',pady=8)
+        toolbar=tk.Frame(frame,bg=self.palette[1]);toolbar.pack(fill='x',pady=(0,8))
+        table_frame=tk.Frame(frame,bg=self.palette[0]);table_frame.pack(fill='both',expand=True)
+        table=ttk.Treeview(table_frame,columns=('path','size','date','condition'),style='Management.Destralha.Treeview',selectmode='browse')
+        for column,title,width in (('#0','Marcar',60),('path','Arquivo / caminho',390),('size','Tamanho',100),('date','Modificado',95),('condition','Condição',220)):
+            table.heading(column,text=title);table.column(column,width=width,minwidth=50,stretch=column in ('path','condition'))
+        scroll=ttk.Scrollbar(table_frame,command=table.yview,style='Destralha.Vertical.TScrollbar');scroll.pack(side='right',fill='y')
+        horizontal=ttk.Scrollbar(table_frame,orient='horizontal',command=table.xview,style='Destralha.Horizontal.TScrollbar');horizontal.pack(side='bottom',fill='x')
+        table.configure(yscrollcommand=scroll.set,xscrollcommand=horizontal.set);table.pack(fill='both',expand=True)
+        def render():
+            table.delete(*table.get_children())
+            start=page[0]*page_size
+            for index in range(start,min(start+page_size,len(files))):
+                record=files[index]
+                key=str(index)
+                values=(str(record.path),engine.human_size(record.size),time.strftime('%d/%m/%Y',time.localtime(record.modified)),reasons[key] or 'Disponível para revisão')
+                text='☑' if key in selected else '☐' if removable and not reasons[key] else '—'
+                if table.exists(key):table.item(key,text=text,values=values)
+                else:table.insert('','end',iid=key,text=text,values=values)
+            status.configure(text=f'{len(files)} arquivos · Página {page[0]+1}/{max(1,(len(files)+page_size-1)//page_size)} · '
+                                  f'{len(selected)} marcados no grupo · {engine.human_size(sum(files[int(key)].size for key in selected))}')
+            if removable:delete_button.configure(state='normal' if selected and not self.app.working else 'disabled')
+            previous.configure(state='normal' if page[0]>0 else 'disabled')
+            following.configure(state='normal' if start+page_size<len(files) else 'disabled')
+        def navigate(offset):
+            page[0]+=offset;render()
+        def mark(all_items):
+            if self.app.working:return
+            selected.clear()
+            if all_items:selected.update(key for key,reason in reasons.items() if not reason)
+            render()
+        def toggle(event):
+            if self.app.working:return
+            key=table.identify_row(event.y) if event.keysym!='space' else table.focus()
+            if key and not reasons[key] and (event.keysym=='space' or table.identify_column(event.x)=='#0'):
+                selected.remove(key) if key in selected else selected.add(key);render();return 'break'
+        def remove():
+            if self.app.working or not selected:return
+            records=tuple(files[int(key)] for key in sorted(selected,key=int))
+            text=f'{len(records)} arquivos · {engine.human_size(sum(record.size for record in records))}\n\n'
+            text+='\n'.join(str(record.path) for record in records[:12])
+            if len(records)>12:text+=f'\n… e mais {len(records)-12} arquivos listados na tabela.'
+            text+='\n\nConfirma que não precisa destas cópias para recuperação ou importação e deseja excluí-las permanentemente?'
+            if not messagebox.askyesno('Excluir exportações / backups',text,default='no',parent=window):return
+            window.destroy();self.delete_exports(item,records)
+        if removable:
+            self.app.button(toolbar,'Marcar Tudo',lambda:mark(True),'check').pack(side='left')
+            self.app.button(toolbar,'Desmarcar Tudo',lambda:mark(False),'clear',quiet=True).pack(side='left',padx=8)
+            delete_button=self.app.button(footer,'Excluir marcados',remove,'trash',primary=True)
+            delete_button.pack(side='right',padx=8)
+            table.bind('<Button-1>',toggle);table.bind('<space>',toggle)
+        elif item.kind=='mysql' and category=='Logs binários':
+            self.app.button(footer,'Consultar / expurgar pelo MySQL',lambda:(window.destroy(),self.purge_dialog() if self.snapshot and self.credentials else self.connect_dialog()),'gear').pack(side='left')
+        following=self.app.button(toolbar,'Próxima página',lambda:navigate(1),quiet=True);following.pack(side='right')
+        previous=self.app.button(toolbar,'Página anterior',lambda:navigate(-1),quiet=True);previous.pack(side='right')
+        render()
+
+    def delete_exports(self,item,records):
+        def worker():
+            results=[];removed=[]
+            for index,record in enumerate(records):
+                if self.app.cancel.is_set():break
+                self.app.events.put(('progress',dict(phase='Exclusão de exportações',index=index,total=len(records),current=str(record.path))))
+                try:
+                    size=exports.delete(item,record);removed.append(record)
+                    results.append(dict(path=str(record.path),result='Excluído',bytes=size))
+                except Exception as exc:results.append(dict(path=str(record.path),result='Preservado / falha',reason=str(exc)))
+            self.app.events.put(('managed_exports',(item.key,removed,results,len(records))))
+        self.task('Excluindo exportações selecionadas',worker)
 
     def disconnect(self):
         self.credentials=None;self.snapshot=None;self.connected_key=None
@@ -364,11 +440,10 @@ class MaintenanceView:
     def on_event(self,kind,payload):
         if kind=='managed_discovery':
             self.installations,warnings=payload
-            self.disconnect();self.list.delete(*self.list.get_children())
-            for item in self.installations:
-                self.list.insert('','end',iid=item.key,text=item.name)
-            self.current=next((item for item in self.installations if item.kind=='mysql'),self.installations[0])
-            self.list.selection_set(self.current.key)
+            self.disconnect()
+            self.current=next((item for item in self.installations if item.key==getattr(self,'requested_key',None)),
+                              next((item for item in self.installations if item.kind=='mysql'),self.installations[0]))
+            self.app.refresh_installations()
             self.app.report=dict(management=True,title='Instalações detectadas',text='\n\n'.join(
                 f'{item.name}\n{item.root}\n{item.state}' for item in self.installations)+'\n\n'+'\n'.join(warnings))
             self.app.finish_progress();self.render()
@@ -390,6 +465,14 @@ class MaintenanceView:
             self.app.finish_progress();self.render();self.server_details()
         elif kind=='managed_action':
             self.app.report=dict(management=True,**payload)
+            self.app.finish_progress();self.render();self.app.show_report()
+        elif kind=='managed_exports':
+            key,removed,results,total=payload
+            inventory=self.inventories.get(key)
+            if inventory:inventory.files=[record for record in inventory.files if record not in removed]
+            text='\n\n'.join(f"{result['result']} · {result['path']}\n"+(result.get('reason') or engine.human_size(result['bytes'])) for result in results)
+            text+=f'\n\n{total-len(results)} não processados.'
+            self.app.report=dict(management=True,title='Exclusão de exportações',text=text,results=results,canceled=self.app.cancel.is_set())
             self.app.finish_progress();self.render();self.app.show_report()
         elif kind=='managed_error':
             self.app.report=dict(management=True,title='Operação não concluída',text=payload)

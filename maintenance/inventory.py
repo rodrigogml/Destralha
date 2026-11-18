@@ -20,6 +20,7 @@ class Installation:
     config: Path | None = None
     port: int = 3306
     warnings: tuple[str,...] = ()
+    preserved_files: tuple[Path,...] = ()
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,9 @@ class FileRecord:
     size: int
     modified: float
     category: str
+    modified_ns: int = 0
+    identity: int = 0
+    device: int = 0
 
 
 @dataclass
@@ -83,7 +87,8 @@ def measure(installation, roots, classifier, cancel=None, notify=lambda *_:None)
                 if key in seen_files:
                     result.hardlinks += 1; return
                 seen_files.add(key)
-                result.files.append(FileRecord(file,metadata.st_size,metadata.st_mtime,classifier(file)))
+                result.files.append(FileRecord(file,metadata.st_size,metadata.st_mtime,classifier(file),
+                                               metadata.st_mtime_ns,metadata.st_ino,metadata.st_dev))
                 if len(result.files)%500==0:
                     notify(len(result.files),str(file.parent))
             if entries is not None:

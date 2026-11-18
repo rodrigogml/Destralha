@@ -6,22 +6,41 @@ procedimento do proprietário dos dados para as ações disponíveis.
 
 ## Navegação e medição
 
-Abra **Programas e sistema** na navegação lateral. **Detectar instalações**
-consulta serviços locais e diretórios usuais do MySQL, sem iniciar serviços.
-Windows aparece como uma instalação gerenciada. Selecione uma instalação e
-clique **Analisar instalação**; o botão superior **Analisar diretórios** também
-atua sobre a instalação selecionada enquanto esta área estiver aberta.
+**Analisar Computador** consulta regras de arquivos, Downloads e instalações
+suportadas (MySQL e Windows), sem iniciar serviços ou executar limpeza. A busca
+é restrita a esses escopos conhecidos. Cada etapa aceita cancelamento; resultados
+incompletos são identificados. Falha em uma área não impede as demais.
+
+O resultado abre em **Visão geral**, também acessível no início da navegação.
+A tabela informa volume por área e estimativa de limpeza ou revisão; um clique
+abre a mesma tela disponível na barra lateral. **Arquivos** contém Caches,
+Downloads e Outros. **Instalações** contém Windows e cada instância descoberta,
+sem uma segunda lista interna de navegação. **Detectar instalações** atualiza os
+itens do menu; **Analisar instalação** mede somente a instalação aberta. O botão
+superior **Analisar Computador** permanece global em todas as telas.
 
 A tela informa caminho, situação do serviço, total inventariado, tipos de
-conteúdo e sugestões. Duplo clique em um tipo mostra os cem maiores arquivos
-do grupo. A medição usa metadados e não abre conteúdo de bancos ou documentos.
+conteúdo e sugestões. O ícone de visualização na primeira coluna abre a tabela
+de arquivos do grupo, com caminho, tamanho, modificação e condição. Enter e duplo
+clique no nome continuam disponíveis. A medição usa metadados e não abre conteúdo de bancos ou documentos.
 Comparações entre medições da mesma sessão ficam no relatório em memória.
+As tabelas de arquivos mostram duzentas linhas por página. A seleção permanece
+entre páginas; **Marcar Tudo** abrange todos os arquivos elegíveis do grupo,
+e o contador e a confirmação consideram a seleção inteira.
+
+Diálogos próprios abrem centralizados na janela pai, inclusive quando aninhados.
+Confirmações nativas recebem a janela correspondente como proprietária.
 
 > [!IMPORTANT]
 > Tamanho ocupado não é espaço recuperável. Arquivos compactados, esparsos,
 > compartilhados e dados válidos podem tornar essas grandezas diferentes.
 > O total é lógico e evita duplicar hardlinks; erros de acesso e arquivos
 > offline/links pulados aparecem nos avisos. Cancelamento deixa resultado parcial.
+
+O dashboard não soma instalações e categorias em uma promessa de espaço livre:
+escopos podem se sobrepor. Caches disponíveis são separados de arquivos pessoais
+a revisar. Binlogs dependem da consulta SQL e componentes do Windows dependem
+da análise nativa; o tamanho inteiro de uma instalação nunca é marcado como lixo.
 
 ## MySQL
 
@@ -45,6 +64,28 @@ Tipos de conteúdo:
 
 Não se deduz que uma tabela é descartável pelo nome. Nomes que sugerem histórico
 geram apenas uma sugestão para investigar sua política de retenção.
+
+### Excluir exportações / backups
+
+O grupo de exportações abre uma tabela com marcação individual, **Marcar Tudo**,
+**Desmarcar Tudo** e **Excluir marcados**. Nenhum arquivo começa marcado. A revisão
+final mostra quantidade, volume e caminhos e pede confirmação de que as cópias
+não serão necessárias para recuperação ou importação. A extensão não prova que
+um backup é dispensável nem que exista outra cópia.
+
+Somente arquivos individuais inventariados dentro da instalação e fora do
+datadir podem ser removidos. Scripts de distribuição (`share`, `scripts`,
+`support-files`, `mysql-test`, `include`, `lib`, `docs`) e arquivos referenciados
+por `init-file` no serviço ou configuração identificados são preservados.
+Configurações indiretas e usos futuros desconhecidos não podem ser inferidos;
+o usuário deve revisar a seleção. Tabelas, InnoDB, logs binários e componentes
+do Windows não usam essa função.
+
+Antes da exclusão são reconferidos escopo, tipo, tamanho, modificação em
+nanossegundos, volume e identidade. A exclusão fica vinculada ao handle exclusivo
+do arquivo: arquivos em uso ou substituídos são preservados. Não há alteração
+de ACLs ou remoção recursiva. Falhas de um arquivo não ampliam a seleção; o
+resultado individual fica em memória e o inventário remove somente os sucessos.
 
 ### Consulta do servidor
 
@@ -136,7 +177,11 @@ nem as marcações das outras categorias.
 - `maintenance/inventory.py`: escopo, metadados, classificação e hardlinks.
 - `maintenance/mysql.py`: descoberta, consulta SQL e contrato do expurgo.
 - `maintenance/windows.py`: comandos fixos e ferramentas nativas do sistema.
+- `maintenance/exports.py`: contrato de descarte de cópias revisadas do MySQL.
 - `maintenance/view.py`: revisão, confirmações e integração por fila de eventos.
+- `overview.py`: dashboard e atalhos para as áreas do menu.
+- `file_deletion.py`: exclusão individual por identidade/handle, compartilhada
+  por Downloads e exportações, após as validações específicas de cada contexto.
 - `tests/test_maintenance.py`: contratos com arquivos artificiais, SQL e processos
   simulados; os testes não executam manutenção real do Windows ou dos bancos.
 

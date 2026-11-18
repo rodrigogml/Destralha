@@ -13,6 +13,8 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import destralha as d
 import engine as e
 import downloads
+from maintenance import mysql,windows
+from maintenance.inventory import Inventory,Installation,FileRecord
 
 
 class DestralhaTests(unittest.TestCase):
@@ -22,6 +24,7 @@ class DestralhaTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         self.app = d.DestralhaApp(self.root)
+        self.app.change_category('Caches')
         self.addCleanup(self.temp.cleanup)
         self.addCleanup(self.app.dispose)
 
@@ -75,6 +78,8 @@ class DestralhaTests(unittest.TestCase):
         other = self.candidate('Other',rule=dict(risk='diagnostic'))
         self.app.days.set('120')
         with patch.object(e,'scan',return_value=[cache,other]) as scan, \
+             patch.object(mysql,'discover',return_value=([],[])), \
+             patch.object(windows,'inventory',side_effect=lambda item,*args:Inventory(item)), \
              patch.object(downloads,'scan_downloads',return_value=([],[])) as scan_downloads, \
              patch.object(Path,'write_text',side_effect=AssertionError('Escrita automática proibida')):
             self.app.analyze(); self.wait()
@@ -166,6 +171,54 @@ class DestralhaTests(unittest.TestCase):
         self.assertTrue(cache.path.exists())
         self.assertTrue(cache.selected)
         self.assertIn('Fonte registrada',self.app.report_text())
+
+    def test_dashboard_routes_and_global_analysis_includes_installations(self):
+        item=Installation('mysql:fixture','mysql','MySQL fixture',self.base,self.base/'data')
+        inventory=Inventory(item,files=[FileRecord(self.base/'data/binlog.000001',40,time.time(),'Logs binários')])
+        with patch.object(e,'scan',return_value=[]),patch.object(downloads,'scan_downloads',return_value=([],[])), \
+             patch.object(mysql,'discover',return_value=([item],[])),patch.object(mysql,'inventory',return_value=inventory) as measure, \
+             patch.object(windows,'inventory',side_effect=lambda item,*args:Inventory(item)):
+            self.app.analyze();self.wait()
+        measure.assert_called_once()
+        self.assertEqual(self.app.mode,'overview')
+        self.assertTrue(self.app.overview.table.exists('install:'+item.key))
+        self.assertIn(item.key,self.app.installation_buttons)
+        self.app.overview.table.selection_set('install:'+item.key)
+        self.app.overview.open_row()
+        self.assertEqual(self.app.mode,'management')
+        self.assertEqual(self.app.management.current,item)
+        self.assertIn('40.00 B',self.app.management.total.cget('text'))
+        self.app.show_overview()
+        self.app.overview.table.selection_set('files:Downloads');self.app.overview.open_row()
+        self.assertEqual(self.app.category,'Downloads')
+
+    def test_dialogs_center_on_parent_and_nested_parent(self):
+        self.root.deiconify();self.root.geometry('1320x880+40+35');self.root.update()
+        window,_=self.app.dialog('Fixture','720x520',parent=self.root)
+        self.root.update()
+        def center(widget):return widget.winfo_rootx()+widget.winfo_width()/2,widget.winfo_rooty()+widget.winfo_height()/2
+        for a,b in zip(center(window),center(self.root)):self.assertLessEqual(abs(a-b),2)
+        child,_=self.app.dialog('Nested','600x400',parent=window);self.root.update()
+        for a,b in zip(center(child),center(window)):self.assertLessEqual(abs(a-b),2)
+        child.destroy();window.destroy()
+
+    def test_partial_global_analysis_preserves_cancellation_and_other_area_results(self):
+        cache=self.candidate('Cache')
+        item=Installation('mysql:fixture','mysql','MySQL fixture',self.base,self.base/'data')
+        def interrupted_windows(item,*args):
+            self.app.cancel.set()
+            return Inventory(item,canceled=True,warnings=['Medição parcial'])
+        with patch.object(e,'scan',return_value=[cache]), \
+             patch.object(downloads,'scan_downloads',side_effect=PermissionError('fixture')), \
+             patch.object(mysql,'discover',return_value=([item],[])), \
+             patch.object(windows,'inventory',side_effect=interrupted_windows),patch.object(mysql,'inventory') as mysql_measure:
+            self.app.analyze();self.wait()
+        mysql_measure.assert_not_called()
+        self.assertEqual(self.app.rows['Caches'],[cache])
+        self.assertTrue(self.app.report['canceled'])
+        self.assertEqual(self.app.mode,'overview')
+        self.assertNotIn(item.key,self.app.management.inventories)
+        self.assertTrue(any('Downloads' in warning for warning in self.app.warnings))
 
 
 if __name__=='__main__':

@@ -7,8 +7,10 @@ alguns arquivos protegidos podem exigir execução como administrador.
 
 ## Abrir e utilizar
 
-A janela Destralha tem navegação lateral para três categorias, com filtros e
-seleções independentes. Logo, ícone e cores verde-petróleo/turquesa seguem a
+A janela Destralha começa na **Visão geral**, com atalhos para cada resultado.
+A navegação lateral tem seções **Arquivos** (três categorias com filtros e
+seleções independentes) e **Instalações** (Windows e instâncias MySQL detectadas).
+Logo, ícone e cores verde-petróleo/turquesa seguem a
 identidade aprovada. Não há abas aninhadas.
 
 - **Caches**: todos os itens já classificados como cache no catálogo, incluindo
@@ -49,8 +51,9 @@ Pillow 12.1.0 já está instalado neste computador; nenhuma nova biblioteca foi
 instalada durante a reformulação. Em outro computador, `requirements.txt`
 registra a versão validada. Não é necessário framework adicional de interface.
 
-1. Clique em **Analisar diretórios** no topo. Uma única ação atualiza Caches,
-   Downloads e Outros. Downloads usa o prazo definido em sua categoria; Outros respeita
+1. Clique em **Analisar Computador** no topo. Uma única ação atualiza Caches,
+   Downloads, Outros e instalações suportadas. O dashboard exibe o resumo e abre
+   cada área por um clique. Downloads usa o prazo definido em sua categoria; Outros respeita
    a opção de incluir diretórios preservados. Nenhum conteúdo é excluído.
 2. Expanda um aplicativo para consultar seus diretórios e as condições de limpeza.
 3. Marque as caixas na coluna **Limpar**. Em Caches, **Marcar Tudo** seleciona
@@ -149,7 +152,7 @@ Abra **Downloads** na navegação lateral.
 O programa resolve a pasta Downloads da conta atual pela API do Windows,
 inclusive quando redirecionada. Não usa nome de usuário fixo.
 
-1. Escolha o prazo, de **90 dias por padrão**, e clique **Analisar diretórios**
+1. Escolha o prazo, de **90 dias por padrão**, e clique **Analisar Computador**
    no topo da janela para atualizar todas as categorias.
 2. A busca recursiva lista arquivos cuja **última modificação** é anterior ao
    prazo **OU** cujo tamanho é **maior que 1 GiB (1.073.741.824 bytes)**.
@@ -220,7 +223,7 @@ os itens visíveis. **Desmarcar tudo** limpa toda a seleção, inclusive os ocul
 
 ### Programas e sistema
 
-Nova área de gerenciamento por instalação, com inventário de MySQL e Windows,
+Área **Instalações** na mesma barra lateral, com inventário de MySQL e Windows,
 sugestões e ações próprias desses sistemas. [Documentação e contratos](maintenance.md).
 As categorias Caches, Downloads e Outros conservam sua seleção e suas regras.
 
@@ -228,7 +231,7 @@ As categorias Caches, Downloads e Outros conservam sua seleção e suas regras.
 
 Interface aprovada e implementada como Destralha:
 
-- Navegação lateral única para Caches, Downloads e Outros; sem abas aninhadas.
+- Navegação lateral única com Visão geral, Arquivos e Instalações; sem menus internos duplicados.
 - Análise global sempre acessível no cabeçalho, com ícone e rótulo visível.
 - Lista com busca, filtros com contagens combinadas e detalhes sob demanda:
   localização, consequência da exclusão e dados preservados.
@@ -259,6 +262,8 @@ tenta restaurar o atributo no mesmo arquivo, mantendo o registro da falha.
 - `catalog.json`: regras e conhecimento obtidos na análise, sem usuário fixo.
 - `destralha.py`: interface principal, filtros, tarefas em threads e fila de eventos.
 - `downloads.py`: análise e remoção restrita de arquivos de Downloads.
+- `overview.py`: resumo da análise e atalhos para cada área.
+- `file_deletion.py`: exclusão individual por handle após validação do contexto.
 - `assets/brand/`: logo transparente, símbolo e ícone Windows.
 - `tests/test_engine.py`: contratos de segurança com arquivos artificiais.
 - `tests/test_destralha.py`: fluxo real da nova interface, isolamento das categorias,
