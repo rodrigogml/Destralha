@@ -1,2 +1,4 @@
 # Dependência já disponível neste computador; versão validada da interface.
 Pillow==12.1.0
+# Conexão SQL local para diagnóstico e expurgo controlado pelo próprio MySQL.
+mysql-connector-python==8.3.0

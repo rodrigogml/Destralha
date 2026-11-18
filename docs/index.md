@@ -218,6 +218,12 @@ os itens visíveis. **Desmarcar tudo** limpa toda a seleção, inclusive os ocul
 
 ## Organização e manutenção
 
+### Programas e sistema
+
+Nova área de gerenciamento por instalação, com inventário de MySQL e Windows,
+sugestões e ações próprias desses sistemas. [Documentação e contratos](maintenance.md).
+As categorias Caches, Downloads e Outros conservam sua seleção e suas regras.
+
 ### Interface implementada
 
 Interface aprovada e implementada como Destralha:

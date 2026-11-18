@@ -14,7 +14,7 @@ import engine
 import downloads
 
 APP = Path(__file__).resolve().parent
-VERSION = '1.0'
+VERSION = '1.1'
 BG, PANEL, SOFT, LINE = '#10161e', '#18212c', '#202e3d', '#2b3949'
 INK, MUTED, ACCENT, ACCENT_BG, WARN = '#edf4fc', '#a6b6c7', '#78d4d6', '#203c40', '#f0c381'
 CATEGORIES = ('Caches', 'Downloads', 'Outros')
@@ -114,6 +114,8 @@ class DestralhaApp:
         self.rules = engine.load_catalog()
         self.rows = {category: [] for category in CATEGORIES}
         self.category = 'Caches'
+        self.mode = 'catalog'
+        self.management = None
         self.events = queue.Queue()
         self.cancel = threading.Event()
         self.working = False
@@ -246,6 +248,9 @@ class DestralhaApp:
             button.configure(anchor='w',padx=13,pady=13)
             button.pack(fill='x',pady=4)
             self.nav[category] = button
+        self.management_button = self.button(sidebar,'Programas e sistema',self.open_management,'gear',quiet=True)
+        self.management_button.configure(anchor='w',padx=13,pady=13)
+        self.management_button.pack(fill='x',pady=(18,4))
         self.button(sidebar,'Opções',self.settings,'gear',quiet=True).pack(side='bottom',fill='x',pady=(20,0))
         disk = tk.Frame(sidebar,bg=PANEL)
         disk.pack(side='bottom',fill='x',pady=(25,0))
@@ -256,6 +261,7 @@ class DestralhaApp:
         self.disk_capacity = self.label(disk,size=9,color=MUTED); self.disk_capacity.pack(anchor='w')
         self.update_disk()
         main = tk.Frame(self.root,bg=BG); main.grid(row=0,column=1,sticky='nsew')
+        self.main_area = main
         header = tk.Frame(main,bg=PANEL,padx=24,pady=17); header.pack(fill='x')
         self.label(header,'PERFIL ATUAL  ·  ANÁLISE LOCAL',size=9,color=MUTED).pack(side='left')
         self.analyze_button = self.button(header,'Analisar diretórios',self.analyze,'search',primary=True)
@@ -268,6 +274,7 @@ class DestralhaApp:
         self.button(self.live,'Ver progresso',self.show_progress,quiet=True).pack(side='right')
         self.live.pack(fill='x'); self.live.pack_forget()
         footer = tk.Frame(main,bg=PANEL,padx=24,pady=14); footer.pack(side='bottom',fill='x')
+        self.catalog_footer = footer
         self.footer_main = self.label(footer,'Nenhum item marcado',size=11,bold=True)
         self.footer_main.grid(row=0,column=0,sticky='w')
         self.footer_sub = self.label(footer,'Marque somente o que deseja limpar.',size=9,color=MUTED)
@@ -279,6 +286,7 @@ class DestralhaApp:
         self.clean_button.grid(row=0,column=2,rowspan=2)
         self.label(footer,'Relatórios só são gravados ao clicar em Salvar.',size=9,color=MUTED).grid(row=2,column=0,columnspan=3,pady=(12,0))
         content = tk.Frame(main,bg=BG,padx=24,pady=22); content.pack(fill='both',expand=True)
+        self.catalog_page = content
         self.title = self.label(content,'Caches',size=24,bold=True); self.title.pack(anchor='w')
         self.subtitle = self.label(content,'',size=10,color=MUTED); self.subtitle.pack(anchor='w',pady=(5,18))
         metrics = tk.Frame(content,bg=BG); metrics.pack(fill='x',pady=(0,18))
@@ -350,6 +358,12 @@ class DestralhaApp:
         return filter_rows(self.rows[self.category], self.states[self.category]['query'], **self.current_filters())
 
     def render(self):
+        if self.mode == 'management':
+            for button in self.nav.values():button.configure(bg=PANEL,fg=MUTED)
+            self.management_button.configure(bg=ACCENT_BG,fg=ACCENT)
+            if self.management is not None:self.management.refresh_controls()
+            return
+        self.management_button.configure(bg=PANEL,fg=MUTED)
         self.updating = True
         try:
             state = self.states[self.category]
@@ -433,8 +447,23 @@ class DestralhaApp:
 
     def change_category(self,category):
         if category in CATEGORIES:
+            if self.mode == 'management':
+                self.management.frame.pack_forget()
+                self.catalog_footer.pack(side='bottom',fill='x')
+                self.catalog_page.pack(fill='both',expand=True)
+            self.mode = 'catalog'
             self.category = category
             self.render()
+
+    def open_management(self):
+        if self.management is None:
+            from maintenance.view import MaintenanceView
+            self.management = MaintenanceView(self,self.main_area)
+        self.mode = 'management'
+        self.catalog_page.pack_forget()
+        self.catalog_footer.pack_forget()
+        self.management.activate()
+        self.render()
 
     def remember_open(self,opened):
         key = self.tree.focus()
@@ -569,7 +598,8 @@ class DestralhaApp:
         self.days_input.configure(state='disabled' if value else 'normal')
         if value:
             if not self.live.winfo_manager():
-                self.live.pack(fill='x',before=self.title.master)
+                page = self.management.frame if self.mode=='management' else self.catalog_page
+                self.live.pack(fill='x',before=page)
         else:
             self.live.pack_forget()
         self.render()
@@ -634,6 +664,9 @@ class DestralhaApp:
 
     def analyze(self):
         if self.working:
+            return
+        if self.mode == 'management':
+            self.management.analyze()
             return
         try:
             days = int(self.days.get()); downloads.validate_days(days)
@@ -746,7 +779,9 @@ class DestralhaApp:
         try:
             while True:
                 kind,payload = self.events.get_nowait()
-                if kind=='progress':
+                if kind.startswith('managed_') and self.management is not None:
+                    self.management.on_event(kind,payload)
+                elif kind=='progress':
                     self.progress_state.update(payload); self.update_progress()
                 elif kind=='analysis':
                     catalog,download_rows,self.warnings = payload
@@ -786,6 +821,8 @@ class DestralhaApp:
         if self.report is None:
             return 'Nenhuma operação nesta sessão. Relatórios não são gravados automaticamente.'
         data = self.report
+        if data.get('management'):
+            return data['title']+'\n\n'+data['text']
         if data.get('analysis'):
             lines = ['ANÁLISE '+('CANCELADA' if data['canceled'] else 'CONCLUÍDA'),
                      ' · '.join(f'{key}: {value} alvos' for key,value in data['counts'].items()),
@@ -841,6 +878,7 @@ class DestralhaApp:
 
     def dispose(self):
         self.root.after_cancel(self.timer)
+        if self.management is not None:self.management.close()
         if self.progress_window is not None and self.progress_window.winfo_exists():
             self.progress_bar.stop()
         self.root.update_idletasks()
@@ -852,7 +890,9 @@ def main():
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('Rodrigo.Destralha')
     root = tk.Tk()
     try:
-        DestralhaApp(root)
+        app = DestralhaApp(root)
+        import sys
+        if '--programas' in sys.argv:root.after_idle(app.open_management)
     except Exception as exc:
         messagebox.showerror('Não foi possível abrir Destralha',str(exc),parent=root)
         root.destroy(); return

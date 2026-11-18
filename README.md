@@ -34,6 +34,19 @@ nome de usuário fixo no código.
 Relatórios ficam apenas na memória da sessão. **Salvar relatório** é a única
 ação que os grava. Preferências e atalhos locais não são versionados.
 
+## Gerenciamento por instalação
+
+**Programas e sistema** detecta instâncias locais de MySQL e oferece diagnóstico
+do Windows. Mostra caminhos, totais, tipos de arquivo e sugestões, sem considerar
+todo espaço ocupado como lixo. Tabelas e arquivos internos são preservados.
+
+O MySQL pode ser consultado por conexão local, com senha somente em memória.
+O expurgo de binlogs é feito pelo próprio servidor, com verificação da instância,
+revisão de backups/replicação e confirmação final. No Windows, análise e limpeza
+de componentes usam DISM; não há `/ResetBase` ou exclusão manual de componentes.
+
+[Uso e contratos de segurança da área de gerenciamento](docs/maintenance.md).
+
 ## Documentação e testes
 
 [Documentação de uso, segurança e manutenção](docs/index.md).
