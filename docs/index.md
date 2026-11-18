@@ -16,7 +16,7 @@ identidade aprovada. Não há abas aninhadas.
 - **Caches**: todos os itens já classificados como cache no catálogo, incluindo
   Chrome, Edge, pip/Python, npm, aplicativos e ferramentas. Não inclui pacotes
   instalados, ambientes virtuais, modelos ou mídia offline.
-- **Downloads**: revisão de arquivos por idade ou tamanho, com regras próprias.
+- **Downloads**: revisão com filtros combinados de idade e tamanho, com regras próprias.
   A função agora fica integrada à janela principal, sem abrir outra janela.
 - **Outros**: reúne os controles para modelos, mídia offline,
   instaladores, diagnósticos e diretórios preservados. Caches não ficam duplicados.
@@ -53,7 +53,7 @@ registra a versão validada. Não é necessário framework adicional de interfac
 
 1. Clique em **Analisar Computador** no topo. Uma única ação atualiza Caches,
    Downloads, Outros e instalações suportadas. O dashboard exibe o resumo e abre
-   cada área por um clique. Downloads usa o prazo definido em sua categoria; Outros respeita
+   cada área por um clique. Downloads usa os filtros definidos em sua categoria; Outros respeita
    a opção de incluir diretórios preservados. Nenhum conteúdo é excluído.
 2. Expanda um aplicativo para consultar seus diretórios e as condições de limpeza.
 3. Marque as caixas na coluna **Limpar**. Em Caches, **Marcar Tudo** seleciona
@@ -152,18 +152,24 @@ Abra **Downloads** na navegação lateral.
 O programa resolve a pasta Downloads da conta atual pela API do Windows,
 inclusive quando redirecionada. Não usa nome de usuário fixo.
 
-1. Escolha o prazo, de **90 dias por padrão**, e clique **Analisar Computador**
-   no topo da janela para atualizar todas as categorias.
-2. A busca recursiva lista arquivos cuja **última modificação** é anterior ao
-   prazo **OU** cujo tamanho é **maior que 1 GiB (1.073.741.824 bytes)**.
-   Um arquivo grande recente aparece para revisão; não é excluído automaticamente.
+1. Clique **Analisar Computador** para inventariar os metadados dos arquivos de
+   Downloads. Nenhum começa marcado. A lista completa fica em memória para
+   permitir alterar os filtros sem repetir a análise global.
+2. Por padrão, a tabela mostra arquivos modificados há **mais de 90 dias E
+   acima de 1 GB**. Os dois cortes são estritos: o valor exato não entra.
+   **Acima de** aceita número decimal (ponto ou vírgula) e B, KB, MB, GB ou TB,
+   em base 1024. Use **0** para desativar apenas um dos cortes.
    A data de modificação pode ter sido preservada pelo download de um arquivo
    antigo e não significa necessariamente o dia em que ele foi baixado.
-3. Ajuste o prazo e analise novamente para atualizar os candidatos antigos ou
-   maiores que 1 GiB. Use busca e filtros; **Detalhes** informa data, motivo da
-   inclusão e impedimentos. Alterar o prazo exige nova análise.
+3. Idade e tamanho atualizam a tabela ao perder o foco ou pressionar Enter;
+   selecionar outra unidade também aplica os cortes. Busca e filtros com
+   contagens combinadas respeitam esses limites. **Limpar filtros** zera idade
+   e tamanho e remove busca, efeito, condição e filtro de marcação; não desmarca
+   arquivos já selecionados. Uma nova análise só é necessária para descobrir
+   arquivos criados ou modificados desde o inventário.
 4. Marque arquivos individualmente ou use **Marcar Tudo** após
-   revisar a lista. A seleção não é lembrada entre buscas ou execuções.
+   revisar a lista. A seleção permanece entre mudanças de filtro, inclusive
+   quando oculta, mas não é lembrada entre análises ou execuções.
 5. **Revisar limpeza** apresenta confirmação da exclusão permanente,
    inclusive a quantidade de itens marcados fora do filtro. Não usa a Lixeira.
 

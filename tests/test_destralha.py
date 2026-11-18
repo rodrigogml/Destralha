@@ -220,6 +220,39 @@ class DestralhaTests(unittest.TestCase):
         self.assertNotIn(item.key,self.app.management.inventories)
         self.assertTrue(any('Downloads' in warning for warning in self.app.warnings))
 
+    def test_download_focus_out_and_unit_selection_refilter_without_analysis(self):
+        def row(name,age,size):
+            return downloads.Download(self.base,self.base/name,size,int((time.time()-age*86400)*1e9),1,90,'Inventário',reviewed_all=True)
+        old=row('old-large',100,2048)
+        recent=row('recent-large',2,2048)
+        small=row('old-small',100,32)
+        self.app.rows['Downloads']=[old,recent,small]
+        self.app.change_category('Downloads')
+        self.root.deiconify();self.root.update()
+        self.app.days.set('90');self.app.download_size.set('1');self.app.download_unit.set('KB')
+        with patch.object(self.app,'analyze',side_effect=AssertionError('Filtro não analisa computador')):
+            self.app.size_input.event_generate('<FocusOut>');self.root.update()
+        self.assertEqual(self.app.visible_rows(),[old])
+        self.assertIn('Todas as condições (1)',self.app.filters['condition'][1]['values'])
+        self.app.days.set('0');self.app.days_input.event_generate('<FocusOut>');self.root.update()
+        self.assertEqual(self.app.visible_rows(),[old,recent])
+        self.app.download_unit.set('MB');self.app.unit_input.event_generate('<<ComboboxSelected>>');self.root.update()
+        self.assertEqual(self.app.visible_rows(),[])
+
+    def test_download_clear_filters_preserves_selection_and_invalid_input_restores_values(self):
+        row=downloads.Download(self.base,self.base/'recent',32,time.time_ns(),1,90,'Inventário',selected=True,reviewed_all=True)
+        self.app.rows['Downloads']=[row];self.app.change_category('Downloads')
+        self.app.states['Downloads'].update(query='missing',condition='Protegido',mark='Desmarcados')
+        self.app.reset_filters_button.invoke()
+        self.assertEqual(self.app.download_cutoff,(0,0))
+        self.assertEqual(self.app.visible_rows(),[row])
+        self.assertTrue(row.selected)
+        self.app.download_size.set('-1')
+        with patch.object(d.messagebox,'showerror') as error:
+            self.assertFalse(self.app.apply_download_filters())
+        error.assert_called_once()
+        self.assertEqual((self.app.days.get(),self.app.download_size.get(),self.app.download_unit.get()),('0','0','GB'))
+
 
 if __name__=='__main__':
     unittest.main()

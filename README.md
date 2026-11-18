@@ -28,6 +28,12 @@ nome de usuário fixo no código.
 3. Marque os alvos desejados e use **Simular** ou **Revisar limpeza**.
 4. Revise caminhos, efeitos e itens fora dos filtros antes de confirmar.
 
+Em Downloads, idade **e** tamanho são combinados (padrão: mais de 90 dias e
+acima de 1 GB). Os campos aplicam ao perder foco ou com Enter; a unidade pode
+ser B, KB, MB, GB ou TB. Zero desativa o respectivo corte. **Limpar filtros**
+remove os cortes e os demais filtros sem desmarcar a seleção. A lista completa
+do último inventário permite refiltrar sem analisar o computador novamente.
+
 > [!IMPORTANT]
 > A exclusão confirmada é permanente, sem Lixeira. Análise e simulação não
 > excluem arquivos. Processos não são encerrados. Fontes de reparo registradas,

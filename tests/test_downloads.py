@@ -54,6 +54,38 @@ class DownloadsTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 d.scan_downloads(self.root, invalid)
 
+    def test_inventory_allows_relaxing_filters_and_combines_age_and_size(self):
+        old_large=self.file('old-large',100,2049)
+        self.file('old-small',100,10)
+        self.file('recent-large',1,2049)
+        self.file('exact-size',100,2048)
+        rows,_=d.scan_downloads(self.root,all_files=True)
+        self.assertEqual(len(rows),4)
+        self.assertTrue(all(row.reviewed_all and not row.selected for row in rows))
+        self.assertEqual([row.path for row in d.filter_downloads(rows,90,2048)],[old_large])
+        self.assertEqual(len(d.filter_downloads(rows,0,2048)),2)
+        self.assertEqual(len(d.filter_downloads(rows,90,0)),3)
+        self.assertEqual(len(d.filter_downloads(rows,0,0)),4)
+        cutoff=rows[0].modified_ns/1e9+90*86400
+        self.assertNotIn(rows[0],d.filter_downloads(rows,90,0,cutoff))
+
+    def test_size_units_decimal_and_invalid_values(self):
+        self.assertEqual(d.size_threshold('1,5','MB'),1572864)
+        self.assertEqual(d.size_threshold('0','GB'),0)
+        self.assertEqual(d.size_threshold('1','TB'),1024**4)
+        for value,unit in (('-1','KB'),('NaN','B'),('Infinity','GB'),('text','MB'),('1','invalid')):
+            with self.subTest(value=value,unit=unit),self.assertRaises(ValueError):d.size_threshold(value,unit)
+        for days,size in ((-1,0),(36501,0),(False,0),(0,-1)):
+            with self.assertRaises(ValueError):d.filter_downloads([],days,size)
+
+    def test_explicitly_reviewed_recent_small_file_can_be_removed_after_filter_clear(self):
+        target=self.file('recent',1,5)
+        self.assertEqual(d.scan_downloads(self.root)[0],[])
+        row=d.scan_downloads(self.root,all_files=True)[0][0]
+        row.selected=True
+        self.assertEqual(d.delete_download(row),5)
+        self.assertFalse(target.exists())
+
     def test_partial_and_failed_checks_preserved(self):
         self.file('incomplete.crdownload')
         self.assertTrue(d.scan_downloads(self.root)[0][0].reason)

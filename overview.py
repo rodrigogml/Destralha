@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import engine
+import downloads
 from maintenance import exports
 
 
@@ -15,7 +16,7 @@ class Overview:
         app.label(self.frame,'Analise o computador e escolha onde recuperar espaço.',color=MUTED).pack(anchor='w',pady=(5,20))
         metrics=tk.Frame(self.frame,bg=BG);metrics.pack(fill='x',pady=(0,18))
         self.values=[]
-        for caption in ('Caches disponíveis','Arquivos de Downloads a revisar','Instalações detectadas'):
+        for caption in ('Caches disponíveis','Downloads nos filtros atuais','Instalações detectadas'):
             box=tk.Frame(metrics,bg=PANEL,padx=16,pady=14)
             box.pack(side='left',fill='x',expand=True,padx=(0,10))
             app.label(box,caption,size=9,color=MUTED).pack(anchor='w')
@@ -40,7 +41,7 @@ class Overview:
     def render(self):
         app=self.app;self.table.delete(*self.table.get_children())
         cache=sum(row.size for row in app.rows['Caches'] if not row.reason and row.selectable)
-        download=sum(row.size for row in app.rows['Downloads'])
+        download=sum(row.size for row in downloads.filter_downloads(app.rows['Downloads'],*app.download_cutoff))
         self.values[0].configure(text=engine.human_size(cache) if app.analyzed else '—')
         self.values[1].configure(text=engine.human_size(download) if app.analyzed else '—')
         installations=app.management.installations if app.management else []
@@ -53,7 +54,8 @@ class Overview:
         for name in ('Caches','Downloads','Outros'):
             rows=app.rows[name]
             total=sum(row.size for row in rows)
-            ready=sum(row.size for row in rows if not row.reason and (not hasattr(row,'selectable') or row.selectable))
+            candidates=downloads.filter_downloads(rows,*app.download_cutoff) if name=='Downloads' else rows
+            ready=sum(row.size for row in candidates if not row.reason and (not hasattr(row,'selectable') or row.selectable))
             potential=(engine.human_size(ready)+' disponíveis' if name=='Caches' else engine.human_size(ready)+' a revisar') if app.analyzed else 'A analisar'
             self.table.insert('','end',iid='files:'+name,image=app.icon('eye'),values=(name,engine.human_size(total) if app.analyzed else '—',potential,f'{len(rows)} alvos' if app.analyzed else 'Análise pendente'))
         for item in installations:

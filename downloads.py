@@ -9,11 +9,13 @@ import re
 import stat
 import time
 import uuid
+from decimal import Decimal, InvalidOperation
 
 from engine import (Refused, safe_path, check_item, installation_records,
                     process_snapshot, busy_reason)
 
 LARGE = 1024 ** 3
+UNITS = {'B':1,'KB':1024,'MB':1024**2,'GB':1024**3,'TB':1024**4}
 PARTIAL = {'.crdownload', '.part', '.partial', '.download', '.tmp'}
 
 
@@ -42,6 +44,25 @@ def validate_days(days: int):
         raise ValueError('Escolha um prazo entre 1 e 36500 dias.')
 
 
+def size_threshold(value,unit):
+    """Limite em bytes, aceitando vírgula decimal e unidades em base 1024."""
+    try:
+        number=Decimal(str(value).strip().replace(',','.'))
+        if unit not in UNITS or not number.is_finite() or number<0 or number>1024**5:raise ValueError()
+        return int(number*UNITS[unit])
+    except (InvalidOperation,ValueError,TypeError):
+        raise ValueError('Informe um tamanho válido, não negativo, e sua unidade.') from None
+
+
+def filter_downloads(rows,days=0,minimum_size=0,now=None):
+    """Combina idade E tamanho estritamente acima dos cortes; zero desativa."""
+    if type(days) is not int or not 0<=days<=36500:raise ValueError('Escolha de 0 a 36500 dias; 0 desativa o corte.')
+    if type(minimum_size) is not int or minimum_size<0:raise ValueError('Tamanho inválido.')
+    now=time.time() if now is None else now
+    return [row for row in rows if (not days or row.modified_ns/1e9<now-days*86400)
+            and (not minimum_size or row.size>minimum_size)]
+
+
 @dataclass
 class Download:
     root: Path
@@ -53,6 +74,7 @@ class Download:
     match: str
     reason: str = ''
     selected: bool = False
+    reviewed_all: bool = False
 
 
 def match_reason(size, modified, days, now):
@@ -120,8 +142,11 @@ def blocked_reason(root, path, protected, processes):
     return ''
 
 
-def scan_downloads(root: Path, days=90, cancel=None):
-    """Lista arquivos antigos OU >1 GiB; nunca seleciona/remove automaticamente.
+def scan_downloads(root: Path, days=90, cancel=None, *, all_files=False):
+    """Lista metadados sem selecionar ou remover automaticamente.
+
+    all_files permite refiltrar toda a lista em memória sem outra varredura.
+    O modo padrão mantém a API legada: arquivos antigos OU maiores que 1 GiB.
 
     Examina metadados recursivamente. Links/placeholders e pastas inacessíveis
     são pulados com aviso, sem hidratação. Falha na consulta de instalação ou
@@ -159,10 +184,10 @@ def scan_downloads(root: Path, days=90, cancel=None):
                     pending.append(path)
                     continue
                 match = match_reason(info.st_size, info.st_mtime, days, now)
-                if match:
+                if match or all_files:
                     result.append(Download(root, path, info.st_size, info.st_mtime_ns,
-                                           info.st_ino, days, match, unavailable or
-                                           blocked_reason(root, path, protected, processes)))
+                                           info.st_ino, days, 'Inventário de Downloads' if all_files else match, unavailable or
+                                           blocked_reason(root, path, protected, processes),reviewed_all=all_files))
             except (OSError, Refused) as exc:
                 warning.append(f'{path}: {exc}')
     if cancel is not None and cancel.is_set():
@@ -183,7 +208,7 @@ def delete_download(row: Download):
     info = check_item(path)
     if not stat.S_ISREG(info.st_mode) or (info.st_size, info.st_mtime_ns, info.st_ino) != (row.size, row.modified_ns, row.identity):
         raise Refused('Arquivo mudou desde a análise; analise novamente.')
-    if not match_reason(info.st_size, info.st_mtime, row.days, time.time()):
+    if not row.reviewed_all and not match_reason(info.st_size, info.st_mtime, row.days, time.time()):
         raise Refused('Arquivo não corresponde mais ao filtro.')
     protected = source_roots(row.root, list(installation_records()))
     reason = blocked_reason(row.root, path, protected, process_snapshot())

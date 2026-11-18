@@ -14,7 +14,7 @@ import engine
 import downloads
 
 APP = Path(__file__).resolve().parent
-VERSION = '1.2'
+VERSION = '1.3'
 BG, PANEL, SOFT, LINE = '#10161e', '#18212c', '#202e3d', '#2b3949'
 INK, MUTED, ACCENT, ACCENT_BG, WARN = '#edf4fc', '#a6b6c7', '#78d4d6', '#203c40', '#f0c381'
 CATEGORIES = ('Caches', 'Downloads', 'Outros')
@@ -125,6 +125,8 @@ class DestralhaApp:
         self.report = None
         self.analyzed = False
         self.analysis_canceled = False
+        self.download_cutoff=(90,downloads.LARGE)
+        self.download_filter_values=('90','1','GB')
         self.warnings = []
         self.images = {}
         self.preferences = self.read_preferences()
@@ -314,12 +316,25 @@ class DestralhaApp:
             value = self.label(box,'—',size=21,bold=True); value.pack(anchor='w',pady=(4,0))
             self.metric_values.append(value)
         self.download_options = tk.Frame(content,bg=SOFT,padx=12,pady=10)
-        self.label(self.download_options,'Última modificação há mais de',size=9,bg=SOFT).pack(side='left')
+        self.label(self.download_options,'Modificação há mais de',size=9,bg=SOFT).pack(side='left')
         self.days = tk.StringVar(value='90')
-        self.days_input = tk.Spinbox(self.download_options,from_=1,to=36500,textvariable=self.days,width=5,
+        self.days_input = tk.Spinbox(self.download_options,from_=0,to=36500,textvariable=self.days,width=5,
                                      bg=PANEL,fg=INK,buttonbackground=SOFT,insertbackground=INK,relief='flat',font=('Segoe UI',11))
         self.days_input.pack(side='left',padx=9)
-        self.label(self.download_options,'dias, OU arquivos acima de 1 GiB. Atualize pela análise global.',size=9,color=MUTED,bg=SOFT).pack(side='left')
+        self.label(self.download_options,'dias  E  acima de',size=9,bg=SOFT).pack(side='left')
+        self.download_size=tk.StringVar(value='1')
+        self.size_input=tk.Entry(self.download_options,textvariable=self.download_size,width=7,bg=PANEL,fg=INK,insertbackground=INK,relief='flat',font=('Segoe UI',11))
+        self.size_input.pack(side='left',padx=9,ipady=3)
+        self.download_unit=tk.StringVar(value='GB')
+        self.unit_input=ttk.Combobox(self.download_options,textvariable=self.download_unit,values=list(downloads.UNITS),state='readonly',width=4,style='Destralha.TCombobox')
+        self.unit_input.pack(side='left')
+        self.label(self.download_options,'0 = sem limite',size=8,color=MUTED,bg=SOFT).pack(side='left',padx=10)
+        for widget in (self.days_input,self.size_input,self.unit_input):
+            widget.bind('<FocusOut>',self.apply_download_filters)
+            widget.bind('<Return>',self.apply_download_filters)
+        self.unit_input.bind('<<ComboboxSelected>>',self.apply_download_filters)
+        self.reset_filters_button=self.button(self.download_options,'Limpar filtros',self.clear_filters,'clear',quiet=True)
+        self.reset_filters_button.pack(side='right')
         toolbar = tk.Frame(content,bg=BG); toolbar.pack(fill='x',pady=(0,12))
         self.mark_button = self.button(toolbar,'Marcar Tudo',self.mark_all,'check'); self.mark_button.pack(side='left')
         self.clear_button = self.button(toolbar,'Desmarcar Tudo',self.clear_all,'clear',quiet=True)
@@ -372,7 +387,35 @@ class DestralhaApp:
         return {key:self.states[self.category][key] for key in self.filters}
 
     def visible_rows(self):
-        return filter_rows(self.rows[self.category], self.states[self.category]['query'], **self.current_filters())
+        return filter_rows(self.filter_source(), self.states[self.category]['query'], **self.current_filters())
+
+    def filter_source(self):
+        rows=self.rows[self.category]
+        return downloads.filter_downloads(rows,*self.download_cutoff) if self.category=='Downloads' else rows
+
+    def apply_download_filters(self,event=None):
+        if self.working or self.updating:return
+        try:
+            days=int(self.days.get())
+            if not 0<=days<=36500:raise ValueError('Escolha de 0 a 36500 dias; 0 desativa o corte.')
+            cutoff=(days,downloads.size_threshold(self.download_size.get(),self.download_unit.get()))
+        except ValueError as exc:
+            old_days,old_size,old_unit=self.download_filter_values
+            self.days.set(old_days);self.download_size.set(old_size);self.download_unit.set(old_unit)
+            messagebox.showerror('Filtros de Downloads',str(exc),parent=self.root);return False
+        self.download_cutoff=cutoff
+        self.download_filter_values=(self.days.get(),self.download_size.get(),self.download_unit.get())
+        if self.category=='Downloads':self.render()
+        return True
+
+    def clear_filters(self):
+        if self.working:return
+        state=self.states[self.category]
+        state.update(query='',effect='Todos os efeitos',condition='Todas as condições',mark='Todas as marcações')
+        if self.category=='Downloads':
+            self.days.set('0');self.download_size.set('0');self.download_unit.set('GB');self.download_cutoff=(0,0)
+            self.download_filter_values=('0','0','GB')
+        self.render()
 
     def render(self):
         self.overview_button.configure(bg=ACCENT_BG if self.mode=='overview' else PANEL,fg=ACCENT if self.mode=='overview' else MUTED)
@@ -395,7 +438,7 @@ class DestralhaApp:
                 self.search.set(state['query'])
             for key,(variable,combo) in self.filters.items():
                 options = self.filter_options[key]
-                counts = facet_counts(self.rows[self.category],state['query'],self.current_filters(),key,options)
+                counts = facet_counts(self.filter_source(),state['query'],self.current_filters(),key,options)
                 values = [f'{option} ({counts[option]})' for option in options]
                 combo.configure(values=values)
                 variable.set(values[options.index(state[key])])
@@ -406,7 +449,7 @@ class DestralhaApp:
             self.title.configure(text=self.category)
             self.subtitle.configure(text={
                 'Caches':'Arquivos recriáveis. Seus dados continuam com você.',
-                'Downloads':'Revise arquivos antigos ou grandes antes de descartá-los.',
+                'Downloads':'Combine idade e tamanho. Os dois limites são aplicados juntos; zero desativa um limite.',
                 'Outros':'Modelos, instaladores e diagnósticos: revise o efeito de cada escolha.'}[self.category])
             if self.category=='Downloads':
                 if not self.download_options.winfo_manager():
@@ -669,6 +712,9 @@ class DestralhaApp:
         for button in (self.analyze_button,self.mark_button,self.clear_button):
             button.configure(state='disabled' if value else 'normal')
         self.days_input.configure(state='disabled' if value else 'normal')
+        self.size_input.configure(state='disabled' if value else 'normal')
+        self.unit_input.configure(state='disabled' if value else 'readonly')
+        self.reset_filters_button.configure(state='disabled' if value else 'normal')
         if value:
             if not self.live.winfo_manager():
                 page = self.management.frame if self.mode=='management' else self.overview.frame if self.mode=='overview' else self.catalog_page
@@ -739,7 +785,8 @@ class DestralhaApp:
         if self.working:
             return
         try:
-            days = int(self.days.get()); downloads.validate_days(days)
+            if not self.apply_download_filters():return
+            days = max(1,self.download_cutoff[0])
         except ValueError:
             self.change_category('Downloads')
             messagebox.showerror('Prazo de Downloads','Informe um prazo entre 1 e 36500 dias.',parent=self.root)
@@ -760,7 +807,7 @@ class DestralhaApp:
                     download_rows,warnings = [],['Análise cancelada; resultados incompletos.']
                 else:
                     try:
-                        download_rows,warnings = downloads.scan_downloads(self.downloads_root,days,self.cancel)
+                        download_rows,warnings = downloads.scan_downloads(self.downloads_root,days,self.cancel,all_files=True)
                     except Exception as exc:
                         download_rows,warnings = [],[f'Downloads não pôde ser analisado: {exc}']
                 from maintenance import mysql,windows
