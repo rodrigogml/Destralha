@@ -1,0 +1,5 @@
+* text=auto
+# O catálogo tem checksum dos bytes: não normalizar finais de linha.
+catalog.json -text
+*.png binary
+*.ico binary

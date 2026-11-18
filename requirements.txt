@@ -1,0 +1,2 @@
+# Dependência já disponível neste computador; versão validada da interface.
+Pillow==12.1.0
